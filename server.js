@@ -15,44 +15,48 @@ app.use(express.json());
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// static files
+// Static files
 const publicDir = path.join(__dirname, "public");
 app.use(express.static(publicDir));
 
-// debug route
+// Debug route
 app.get("/__debug", (req, res) => {
   res.json({
     ok: true,
     service: "backend",
     publicDir,
-    time: Date.now()
+    time: Date.now(),
+    env: {
+      FRONTEND_URL: process.env.FRONTEND_URL ? "set" : "missing",
+      ROBLOX_CLIENT_ID: process.env.ROBLOX_CLIENT_ID ? "set" : "missing",
+      ROBLOX_CLIENT_SECRET: process.env.ROBLOX_CLIENT_SECRET ? "set" : "missing",
+      ROBLOX_REDIRECT_URI: process.env.ROBLOX_REDIRECT_URI ? "set" : "missing",
+      JWT_SECRET: process.env.JWT_SECRET ? "set" : "missing",
+    },
   });
 });
 
-// force correct static files
+// Ensure correct static file responses
 app.get("/script.js", (req, res) => res.sendFile(path.join(publicDir, "script.js")));
 app.get("/style.css", (req, res) => res.sendFile(path.join(publicDir, "style.css")));
-
-// homepage
 app.get("/", (req, res) => res.sendFile(path.join(publicDir, "index.html")));
 
 // CORS
 const ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "http://localhost:3000",
-  process.env.FRONTEND_URL
+  process.env.FRONTEND_URL,
 ].filter(Boolean);
 
 app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 
-// env checks
 function mustEnv(name) {
   if (!process.env[name]) throw new Error(`Missing env var: ${name}`);
 }
-["ROBLOX_CLIENT_ID","ROBLOX_CLIENT_SECRET","ROBLOX_REDIRECT_URI","JWT_SECRET","FRONTEND_URL"].forEach(mustEnv);
+["FRONTEND_URL", "ROBLOX_CLIENT_ID", "ROBLOX_CLIENT_SECRET", "ROBLOX_REDIRECT_URI", "JWT_SECRET"].forEach(mustEnv);
 
 // -----------------------------
-// ROBLOX OAUTH LOGIN START
+// ROBLOX OAUTH START
 // -----------------------------
 app.get("/auth/roblox", (req, res) => {
   const state = crypto.randomBytes(16).toString("hex");
@@ -76,7 +80,7 @@ app.get("/auth/roblox/callback", async (req, res) => {
   if (!code) return res.status(400).send("Missing code");
 
   try {
-    // exchange code -> access token
+    // Exchange code -> access token
     const tokenRes = await fetch("https://apis.roblox.com/oauth/v1/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -85,8 +89,8 @@ app.get("/auth/roblox/callback", async (req, res) => {
         code,
         client_id: process.env.ROBLOX_CLIENT_ID,
         client_secret: process.env.ROBLOX_CLIENT_SECRET,
-        redirect_uri: process.env.ROBLOX_REDIRECT_URI
-      })
+        redirect_uri: process.env.ROBLOX_REDIRECT_URI,
+      }),
     });
 
     const tokenData = await tokenRes.json();
@@ -97,9 +101,9 @@ app.get("/auth/roblox/callback", async (req, res) => {
 
     const accessToken = tokenData.access_token;
 
-    // userinfo
+    // Get user info
     const userRes = await fetch("https://apis.roblox.com/oauth/v1/userinfo", {
-      headers: { Authorization: `Bearer ${accessToken}` }
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     const userData = await userRes.json();
@@ -108,20 +112,22 @@ app.get("/auth/roblox/callback", async (req, res) => {
       return res.status(500).send("Userinfo failed");
     }
 
+    // Username field can vary
     const username =
       userData.preferred_username ||
       userData.name ||
       userData.nickname ||
       "RobloxUser";
 
-    const token = jwt.sign(
+    // Sign JWT for your site
+    const siteToken = jwt.sign(
       { id: userData.sub, username, provider: "roblox" },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    // send token back to frontend
-    res.redirect(`${process.env.FRONTEND_URL}/?token=${encodeURIComponent(token)}`);
+    // Redirect back to your frontend (same site) with token
+    res.redirect(`${process.env.FRONTEND_URL}/?token=${encodeURIComponent(siteToken)}`);
   } catch (err) {
     console.error(err);
     res.status(500).send("Auth failed");
@@ -129,7 +135,7 @@ app.get("/auth/roblox/callback", async (req, res) => {
 });
 
 // -----------------------------
-// VERIFY JWT / ME
+// VERIFY JWT (frontend calls this)
 // -----------------------------
 app.get("/api/me", (req, res) => {
   const auth = req.headers.authorization || "";
@@ -138,11 +144,11 @@ app.get("/api/me", (req, res) => {
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    return res.json({ ok: true, user: payload });
+    res.json({ ok: true, user: payload });
   } catch {
-    return res.status(401).json({ ok: false, error: "Invalid token" });
+    res.status(401).json({ ok: false, error: "Invalid token" });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server listening on port " + PORT));
+app.listen(PORT, () => console.log("Server listening on port", PORT));
