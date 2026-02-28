@@ -18,6 +18,25 @@ const __dirname = path.dirname(__filename);
 const publicDir = path.join(__dirname, "public");
 app.use(express.static(publicDir));
 
+// ✅ debug route (proves which code is deployed)
+app.get("/__debug", (req, res) => {
+  res.json({
+    ok: true,
+    publicDir,
+    hasIndex: true,
+    time: Date.now()
+  });
+});
+
+// ✅ force correct static files (prevents HTML being returned)
+app.get("/script.js", (req, res) => {
+  res.sendFile(path.join(publicDir, "script.js"));
+});
+
+app.get("/style.css", (req, res) => {
+  res.sendFile(path.join(publicDir, "style.css"));
+});
+
 // ✅ CORS (for API calls)
 const ALLOWED_ORIGINS = [
   "http://localhost:5173",
