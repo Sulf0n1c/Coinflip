@@ -7,7 +7,7 @@ const BACKEND_URL = "http://localhost:3000";
 
 // ---------------- GLOBAL STATE ----------------
 let USERNAME = null;
-let POINTS = 1000;
+let POINTS = 0;
 let matches = [];
 let currentRoom = null;
 let lastFlip = null;
