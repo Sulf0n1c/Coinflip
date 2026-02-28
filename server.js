@@ -7,14 +7,18 @@ import { fileURLToPath } from "url";
 
 const app = express();
 
+// ✅ parse JSON bodies
+app.use(express.json());
+
 // __dirname for ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// ✅ static files
 const publicDir = path.join(__dirname, "public");
 app.use(express.static(publicDir));
 
-// CORS
+// ✅ CORS (for API calls)
 const ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "http://localhost:3000",
@@ -23,11 +27,7 @@ const ALLOWED_ORIGINS = [
 
 app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 
-// ✅ Serve frontend
-const publicDir = path.join(__dirname, "public");
-app.use(express.static(publicDir));
-
-// ✅ Homepage route
+// ✅ Homepage route (ONLY for /)
 app.get("/", (req, res) => {
   res.sendFile(path.join(publicDir, "index.html"));
 });
