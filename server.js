@@ -27,6 +27,10 @@ const ALLOWED_ORIGINS = [
 
 app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 
+app.get("/__debug", (req, res) => {
+  res.json({ ok: true, service: "backend", time: Date.now() });
+});
+
 // ✅ Homepage route (ONLY for /)
 app.get("/", (req, res) => {
   res.sendFile(path.join(publicDir, "index.html"));
