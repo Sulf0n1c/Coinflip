@@ -1,7 +1,9 @@
 import express from "express";
-import cors from "cors";
 import crypto from "crypto";
+import cors from "cors";
 import jwt from "jsonwebtoken";
+import path from "path";
+import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -9,24 +11,52 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// CORS (frontend must match)
-app.use(cors({
-  origin: process.env.FRONTEND_URL,
-  credentials: true
-}));
+// __dirname for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
+// static files
+const publicDir = path.join(__dirname, "public");
+app.use(express.static(publicDir));
+
+// debug route
+app.get("/__debug", (req, res) => {
+  res.json({
+    ok: true,
+    service: "backend",
+    publicDir,
+    time: Date.now()
+  });
+});
+
+// force correct static files
+app.get("/script.js", (req, res) => res.sendFile(path.join(publicDir, "script.js")));
+app.get("/style.css", (req, res) => res.sendFile(path.join(publicDir, "style.css")));
+
+// homepage
+app.get("/", (req, res) => res.sendFile(path.join(publicDir, "index.html")));
+
+// CORS
+const ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  process.env.FRONTEND_URL
+].filter(Boolean);
+
+app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
+
+// env checks
 function mustEnv(name) {
   if (!process.env[name]) throw new Error(`Missing env var: ${name}`);
 }
-["FRONTEND_URL","ROBLOX_CLIENT_ID","ROBLOX_CLIENT_SECRET","ROBLOX_REDIRECT_URI","JWT_SECRET"].forEach(mustEnv);
+["ROBLOX_CLIENT_ID","ROBLOX_CLIENT_SECRET","ROBLOX_REDIRECT_URI","JWT_SECRET","FRONTEND_URL"].forEach(mustEnv);
 
 // -----------------------------
-// ROBLOX LOGIN START
+// ROBLOX OAUTH LOGIN START
 // -----------------------------
 app.get("/auth/roblox", (req, res) => {
   const state = crypto.randomBytes(16).toString("hex");
 
-  // (Optional) store state in cookie/session later if you want
   const authUrl =
     `https://apis.roblox.com/oauth/v1/authorize` +
     `?client_id=${encodeURIComponent(process.env.ROBLOX_CLIENT_ID)}` +
@@ -39,14 +69,14 @@ app.get("/auth/roblox", (req, res) => {
 });
 
 // -----------------------------
-// ROBLOX CALLBACK
+// ROBLOX OAUTH CALLBACK
 // -----------------------------
 app.get("/auth/roblox/callback", async (req, res) => {
   const code = req.query.code;
   if (!code) return res.status(400).send("Missing code");
 
   try {
-    // Exchange code for token
+    // exchange code -> access token
     const tokenRes = await fetch("https://apis.roblox.com/oauth/v1/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -67,7 +97,7 @@ app.get("/auth/roblox/callback", async (req, res) => {
 
     const accessToken = tokenData.access_token;
 
-    // Get userinfo
+    // userinfo
     const userRes = await fetch("https://apis.roblox.com/oauth/v1/userinfo", {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
@@ -78,7 +108,6 @@ app.get("/auth/roblox/callback", async (req, res) => {
       return res.status(500).send("Userinfo failed");
     }
 
-    // Roblox fields can vary; prefer username-like fields when present
     const username =
       userData.preferred_username ||
       userData.name ||
@@ -86,20 +115,21 @@ app.get("/auth/roblox/callback", async (req, res) => {
       "RobloxUser";
 
     const token = jwt.sign(
-      { id: userData.sub, username },
+      { id: userData.sub, username, provider: "roblox" },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
+    // send token back to frontend
     res.redirect(`${process.env.FRONTEND_URL}/?token=${encodeURIComponent(token)}`);
-  } catch (e) {
-    console.error(e);
+  } catch (err) {
+    console.error(err);
     res.status(500).send("Auth failed");
   }
 });
 
 // -----------------------------
-// VERIFY JWT + RETURN USER
+// VERIFY JWT / ME
 // -----------------------------
 app.get("/api/me", (req, res) => {
   const auth = req.headers.authorization || "";
@@ -114,7 +144,5 @@ app.get("/api/me", (req, res) => {
   }
 });
 
-app.get("/health", (req, res) => res.json({ ok: true }));
-
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server running on", PORT));
+app.listen(PORT, () => console.log("Server listening on port " + PORT));
