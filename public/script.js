@@ -1,6 +1,10 @@
 // ---------------- UTIL ----------------
 const $ = (id) => document.getElementById(id);
 
+// ✅ CHANGE THIS
+const BACKEND_URL = "http://localhost:3000"; 
+// example Render: "https://your-backend.onrender.com"
+
 // ---------------- GLOBAL STATE ----------------
 let USERNAME = null;
 let POINTS = 1000;
@@ -21,21 +25,54 @@ let USER_STATS = {
 
 // Recently finished matches (displayed in the list for ~20s)
 let finishedMatches = []; 
-// { id, bet, creator, opponent, winner, amountWon, endedAt }
 
 // Archive of full results for re-showing the ending screen
 let archiveResults = {};
-// archiveResults[roomId] = { id, bet, creator, opponent, result, winner, amountWon, seeds:{sSeed,pSeed,nonce}, hash, endedAt }
+
+// ---------------- AUTH HELPERS ----------------
+function getToken() {
+  return localStorage.getItem("token");
+}
+
+function setToken(token) {
+  localStorage.setItem("token", token);
+}
+
+function clearToken() {
+  localStorage.removeItem("token");
+}
+
+async function fetchMe() {
+  const token = getToken();
+  if (!token) return null;
+
+  const res = await fetch(`${BACKEND_URL}/api/me`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  if (!data?.ok) return null;
+  return data.user; // { id, username }
+}
+
+function handleTokenFromRedirect() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("token");
+  if (token) {
+    setToken(token);
+    // clean URL
+    window.history.replaceState({}, document.title, "/");
+  }
+}
 
 // ---------------- INIT ----------------
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  handleTokenFromRedirect();
+
   const savedPoints = localStorage.getItem("points");
   if (savedPoints) POINTS = parseInt(savedPoints, 10);
-
-  const savedUser = localStorage.getItem("username");
-  if (savedUser) {
-    USERNAME = savedUser;
-  }
 
   const savedStats = localStorage.getItem("userStats");
   if (savedStats) {
@@ -43,7 +80,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   updateBalanceDisplay();
-  if (USERNAME) updateLoginUI();
+
+  // ✅ load Roblox user
+  const me = await fetchMe();
+  if (me?.username) {
+    USERNAME = me.username;
+    updateLoginUI();
+  } else {
+    // not logged in
+    USERNAME = null;
+    setLoggedOutUI();
+  }
 
   renderMatchList();
   updateFlipBtnState();
@@ -54,18 +101,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const beforeFM = finishedMatches.length;
     finishedMatches = finishedMatches.filter(m => m.endedAt > cutoff);
-    const afterFM = finishedMatches.length;
 
-    // Archive cleanup
     for (const key of Object.keys(archiveResults)) {
       if (archiveResults[key].endedAt <= cutoff) delete archiveResults[key];
     }
 
-    if (afterFM !== beforeFM) renderMatchList();
+    if (finishedMatches.length !== beforeFM) renderMatchList();
   }, 1000);
 });
 
-// ---------------- HELPERS ----------------
+// ---------------- UI HELPERS ----------------
 function updateBalanceDisplay() {
   $("balanceDisplay").textContent = POINTS.toLocaleString();
   localStorage.setItem("points", POINTS);
@@ -76,7 +121,13 @@ function updateLoginUI() {
   $("usernameDisplay").classList.add("username-display");
   $("loginBtn").classList.add("hidden");
   $("createMatchBtn").disabled = false;
-  $("loginModal").classList.add("hidden");
+  updateFlipBtnState();
+}
+
+function setLoggedOutUI() {
+  $("usernameDisplay").textContent = "";
+  $("loginBtn").classList.remove("hidden");
+  $("createMatchBtn").disabled = true;
   updateFlipBtnState();
 }
 
@@ -94,18 +145,21 @@ function saveStats() {
   localStorage.setItem("userStats", JSON.stringify(USER_STATS));
 }
 
+// ---------------- ROBLOX LOGIN BUTTON ----------------
+$("loginBtn").onclick = () => {
+  window.location.href = `${BACKEND_URL}/auth/roblox`;
+};
+
 // ---------------- CREATE MATCH ----------------
 $("createMatchBtn").onclick = () => {
-  if (!USERNAME) return alert("Login first!");
+  if (!USERNAME) return alert("Login with Roblox first!");
 
   $("betInput").value = Math.min(POINTS, 100);
   $("maxPointsHelper").textContent = POINTS.toLocaleString();
 
   createSelectedSide = "heads";
   document.querySelectorAll("#createMatchModal .choice-box")
-    .forEach(b =>
-      b.classList.toggle("active", b.dataset.value === "heads")
-    );
+    .forEach(b => b.classList.toggle("active", b.dataset.value === "heads"));
 
   $("createMatchModal").classList.remove("hidden");
 };
@@ -124,7 +178,6 @@ function renderMatchList() {
     return;
   }
 
-  // --- ACTIVE MATCHES ---
   matches.forEach((room) => {
     const div = document.createElement("div");
     div.className = "card";
@@ -161,9 +214,7 @@ function renderMatchList() {
       (currentRoom && currentRoom.id === room.id) ||
       (!currentRoom && USERNAME === room.creator) ||
       (USERNAME && room.opponent && room.opponent !== USERNAME)
-    ) {
-      joinBtn.disabled = true;
-    }
+    ) joinBtn.disabled = true;
 
     joinBtn.onclick = () => {
       if (POINTS < room.bet) return alert("Insufficient points!");
@@ -177,7 +228,6 @@ function renderMatchList() {
     list.appendChild(div);
   });
 
-  // --- FINISHED MATCHES (last ~20s, grayed out) ---
   finishedMatches
     .sort((a, b) => b.endedAt - a.endedAt)
     .forEach((fm) => {
@@ -205,10 +255,7 @@ function renderMatchList() {
         </div>
       `;
 
-      // VIEW on finished card -> show ended screen (read-only)
-      const viewBtn = div.querySelector("button.btn.small.cyan");
-      viewBtn.onclick = () => showEndedMatch(fm.id);
-
+      div.querySelector("button.btn.small.cyan").onclick = () => showEndedMatch(fm.id);
       list.appendChild(div);
     });
 }
@@ -220,7 +267,6 @@ function enterRoom(roomId) {
 
   hasFlippedInCurrentRoom = false;
 
-  // If joining as opponent for the first time, pay your bet immediately and track wagered
   if (!currentRoom.opponent && currentRoom.creator !== USERNAME) {
     POINTS -= currentRoom.bet;
     updateBalanceDisplay();
@@ -262,13 +308,8 @@ $("backToList").onclick = () => {
 
 // ---------------- COIN FLIP ----------------
 async function sha256(str) {
-  const buf = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(str)
-  );
-  return Array.from(new Uint8Array(buf))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
 function resetCoinInstant() {
@@ -276,20 +317,15 @@ function resetCoinInstant() {
   coin.style.transition = "none";
   coin.style.transform = "rotateY(0deg) rotateX(0deg)";
   void coin.offsetWidth;
-  coin.style.transition =
-    "transform 1.5s cubic-bezier(0.3,2,0.5,1)";
+  coin.style.transition = "transform 1.5s cubic-bezier(0.3,2,0.5,1)";
 }
 
 function animateCoin(result) {
   const coin = $("coin");
   coin.style.transition = "none";
-  coin.style.transform =
-    result === "heads"
-      ? "rotateY(0deg) rotateX(0deg)"
-      : "rotateY(180deg) rotateX(0deg)";
+  coin.style.transform = result === "heads" ? "rotateY(0deg)" : "rotateY(180deg)";
   void coin.offsetWidth;
-  coin.style.transition =
-    "transform 1.5s cubic-bezier(0.3,2,0.5,1)";
+  coin.style.transition = "transform 1.5s cubic-bezier(0.3,2,0.5,1)";
   const spins = 1080;
   coin.style.transform =
     result === "heads"
@@ -309,10 +345,7 @@ $("flipBtn").onclick = async () => {
   const pSeed = Math.random().toString(36).substring(2,10);
 
   const hash = await sha256(sSeed + pSeed + nonce);
-  const result =
-    parseInt(hash.substring(0,2),16) % 2 === 0
-      ? "heads"
-      : "tails";
+  const result = parseInt(hash.substring(0,2),16) % 2 === 0 ? "heads" : "tails";
 
   animateCoin(result);
 
@@ -320,31 +353,18 @@ $("flipBtn").onclick = async () => {
     const didWin = selectedChoice === result;
 
     $("flipResult").textContent = `RESULT: ${result.toUpperCase()}`;
-    $("winnerDisplay").textContent =
-      didWin ? "🎉 YOU WON!" : "❌ YOU LOST";
+    $("winnerDisplay").textContent = didWin ? "🎉 YOU WON!" : "❌ YOU LOST";
+    $("winnerDisplay").style.color = didWin ? "var(--cyan)" : "var(--pink)";
 
-    $("winnerDisplay").style.color =
-      didWin ? "var(--cyan)" : "var(--pink)";
-
-    // Payouts & stats:
     if (didWin) {
       POINTS += currentRoom.bet * 2;
       updateBalanceDisplay();
-
       USER_STATS.won += currentRoom.bet * 2;
     } else {
       USER_STATS.lost += currentRoom.bet;
     }
     saveStats();
 
-    lastFlip = { sSeed, pSeed, nonce, hash };
-
-    $("seedData").textContent =
-      `ServerSeed: ${sSeed} | PlayerSeed: ${pSeed} | Nonce: ${nonce}`;
-
-    $("hashData").textContent = `Hash: ${hash}`;
-
-    // ----- ARCHIVE the full result so we can re-show it later -----
     const winnerName = didWin ? USERNAME
       : (currentRoom.creator === USERNAME ? currentRoom.opponent : currentRoom.creator);
 
@@ -353,15 +373,14 @@ $("flipBtn").onclick = async () => {
       bet: currentRoom.bet,
       creator: currentRoom.creator,
       opponent: currentRoom.opponent,
-      result,                               // "heads" or "tails"
+      result,
       winner: winnerName,
       amountWon: currentRoom.bet * 2,
-      seeds: { sSeed, pSeed, nonce },       // keep the values that were displayed
+      seeds: { sSeed, pSeed, nonce },
       hash,
       endedAt: Date.now()
     };
 
-    // Record a finished match for the results strip (visible ~20s)
     finishedMatches.push({
       id: currentRoom.id,
       bet: currentRoom.bet,
@@ -384,37 +403,28 @@ $("flipBtn").onclick = async () => {
 // ---------------- Re-show ENDING SCREEN for finished matches ----------------
 function showEndedMatch(roomId) {
   const data = archiveResults[roomId];
-  if (!data) {
-    alert("Result no longer available.");
-    return;
-  }
+  if (!data) return alert("Result no longer available.");
 
   $("roomIdDisplay").textContent = data.id;
   $("roomCreatorDisplay").textContent = data.creator;
   $("roomOpponentDisplay").textContent = data.opponent || "—";
   $("yourSideDisplay").textContent = "—";
 
-  // Reset coin, then set final pose
   resetCoinInstant();
   setTimeout(() => {
     const coin = $("coin");
     coin.style.transition = "none";
-    coin.style.transform =
-      data.result === "heads"
-        ? "rotateY(0deg) rotateX(0deg)"
-        : "rotateY(180deg) rotateX(0deg)";
+    coin.style.transform = data.result === "heads" ? "rotateY(0deg)" : "rotateY(180deg)";
   }, 0);
 
   $("flipResult").textContent = `RESULT: ${data.result.toUpperCase()}`;
   $("winnerDisplay").textContent = `Winner: ${data.winner} (+${data.amountWon.toLocaleString()} PTS)`;
   $("winnerDisplay").style.color = "var(--cyan)";
-  $("seedData").textContent =
-    `ServerSeed: ${data.seeds.sSeed} | PlayerSeed: ${data.seeds.pSeed} | Nonce: ${data.seeds.nonce}`;
+  $("seedData").textContent = `ServerSeed: ${data.seeds.sSeed} | PlayerSeed: ${data.seeds.pSeed} | Nonce: ${data.seeds.nonce}`;
   $("hashData").textContent = `Hash: ${data.hash}`;
 
   $("matchRoom").classList.remove("hidden");
 
-  // Read-only ended view
   currentRoom = null;
   hasFlippedInCurrentRoom = true;
   isFlipping = false;
@@ -423,53 +433,40 @@ function showEndedMatch(roomId) {
 }
 
 // ---------------- FAIRNESS MODAL ----------------
-$("fairnessBtn").onclick = () => {
-  $("fairnessModal").classList.remove("hidden");
-};
-
-$("closeFairnessModal").onclick = () => {
-  $("fairnessModal").classList.add("hidden");
-};
-
+$("fairnessBtn").onclick = () => $("fairnessModal").classList.remove("hidden");
+$("closeFairnessModal").onclick = () => $("fairnessModal").classList.add("hidden");
 $("validateFairnessBtn").onclick = () => {
   const eosBlock = $("eosBlockInput").value;
   const serverSeed = $("serverSeedInput").value;
   const starterVal = $("starterValueInput").value;
   const joinerVal = $("joinerValueInput").value;
-
   if (!eosBlock || !serverSeed) return alert("Enter EOS Block and Server Seed.");
-
   alert(`EOS Block: ${eosBlock}\nServer Seed: ${serverSeed}\nStarter: ${starterVal}\nJoiner: ${joinerVal}\n✔️ Fairness validated!`);
 };
 
 // ---------------- CREATE MATCH MODAL ----------------
 let createSelectedSide = "heads";
 
-document.querySelectorAll("#createMatchModal .choice-box")
-  .forEach(box => {
-    box.addEventListener("click", () => {
-      document.querySelectorAll("#createMatchModal .choice-box")
-        .forEach(b => b.classList.remove("active"));
-      box.classList.add("active");
-      createSelectedSide = box.dataset.value;
-    });
+document.querySelectorAll("#createMatchModal .choice-box").forEach(box => {
+  box.addEventListener("click", () => {
+    document.querySelectorAll("#createMatchModal .choice-box").forEach(b => b.classList.remove("active"));
+    box.classList.add("active");
+    createSelectedSide = box.dataset.value;
   });
+});
 
-$("cancelCreateMatch").onclick =
-  () => $("createMatchModal").classList.add("hidden");
+$("cancelCreateMatch").onclick = () => $("createMatchModal").classList.add("hidden");
 
 $("confirmCreateMatch").onclick = () => {
-  if (!USERNAME) return alert("Login first.");
+  if (!USERNAME) return alert("Login with Roblox first.");
 
   const bet = parseInt($("betInput").value,10);
   if (!bet || bet <= 0) return alert("Invalid amount.");
   if (bet > POINTS) return alert("Insufficient points!");
 
-  // Deduct creator's bet immediately
   POINTS -= bet;
   updateBalanceDisplay();
 
-  // Track wagered for creator
   USER_STATS.wagered += bet;
   saveStats();
 
@@ -486,33 +483,6 @@ $("confirmCreateMatch").onclick = () => {
   enterRoom(newRoom.id);
 };
 
-// ---------------- LOGIN MODAL (simple local login) ----------------
-$("loginBtn").onclick = () => {
-  $("loginModal").classList.remove("hidden");
-  $("usernameInput").value = "";
-  $("usernameInput").placeholder = "Enter your username...";
-  $("usernameInput").focus();
-};
-
-$("closeLogin").onclick = () => {
-  $("loginModal").classList.add("hidden");
-};
-
-$("submitLogin").onclick = () => {
-  const username = $("usernameInput").value.trim();
-  if (!username) {
-    alert("Please enter a username.");
-    return;
-  }
-  USERNAME = username;
-  localStorage.setItem("username", USERNAME);
-  updateLoginUI();
-};
-
-$("usernameInput").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") $("submitLogin").click();
-});
-
 // ---------------- ACCOUNT MENU & LOGOUT ----------------
 $("usernameDisplay").onclick = () => {
   if (!USERNAME) return;
@@ -522,37 +492,27 @@ $("usernameDisplay").onclick = () => {
   $("accountMenu").classList.remove("hidden");
 };
 
-$("closeAccountMenu").onclick = () => {
-  $("accountMenu").classList.add("hidden");
-};
+$("closeAccountMenu").onclick = () => $("accountMenu").classList.add("hidden");
 
 $("logoutBtn").onclick = () => {
   USERNAME = null;
   POINTS = 1000;
 
-  localStorage.removeItem("username");
+  clearToken();
   localStorage.removeItem("points");
   localStorage.removeItem("userStats");
 
   USER_STATS = { wagered: 0, won: 0, lost: 0 };
 
-  // Reset UI/state
   $("accountMenu").classList.add("hidden");
   $("matchRoom").classList.add("hidden");
 
-  $("usernameDisplay").textContent = "";
-  $("loginBtn").classList.remove("hidden");
-  $("createMatchBtn").disabled = true;
-
-  currentRoom = null;
-  isFlipping = false;
-  hasFlippedInCurrentRoom = false;
   matches = [];
   finishedMatches = [];
   archiveResults = {};
   nonce = 0;
 
   updateBalanceDisplay();
-  updateFlipBtnState();
+  setLoggedOutUI();
   renderMatchList();
 };
