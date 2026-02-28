@@ -496,7 +496,7 @@ $("closeAccountMenu").onclick = () => $("accountMenu").classList.add("hidden");
 
 $("logoutBtn").onclick = () => {
   USERNAME = null;
-  POINTS = 1000;
+  POINTS = 0;
 
   clearToken();
   localStorage.removeItem("points");
