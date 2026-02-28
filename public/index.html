@@ -30,7 +30,11 @@
       </div>
 
       <button id="createMatchBtn" class="btn cyan" disabled>Create Match</button>
-      <button id="loginBtn" class="btn login-btn">Login</button>
+
+      <!-- Roblox login button -->
+      <button id="loginBtn" class="btn login-btn">Login with Roblox</button>
+
+      <!-- Shows "Logged in as: ___" -->
       <span id="usernameDisplay" class="username-display"></span>
     </header>
 
@@ -71,18 +75,6 @@
       </div>
     </section>
   </main>
-
-  <!-- Login Modal -->
-  <div id="loginModal" class="modal hidden">
-    <div class="modal-content">
-      <h2>Login</h2>
-      <input id="usernameInput" placeholder="Enter username..." />
-      <div class="modal-actions">
-        <button id="submitLogin" class="btn cyan">Login</button>
-        <button id="closeLogin" class="btn small">Cancel</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Create Match Modal -->
   <div id="createMatchModal" class="modal hidden">
