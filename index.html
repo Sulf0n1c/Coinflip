@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Neon MM2</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="logo">NEONMM2</div>
+      <nav class="nav">
+        <div class="nav-item active">Coinflip</div>
+        <div class="nav-item disabled">Jackpot</div>
+        <div class="nav-item disabled">Leaderboard</div>
+      </nav>
+    </div>
+    <div class="sidebar-footer">
+      <button id="fairnessBtn" class="btn-outline pink">Verify Fairness</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="balance-container">
+        <span class="balance-label">POINTS:</span>
+        <span id="balanceDisplay" class="balance-amount">1000</span>
+      </div>
+
+      <button id="createMatchBtn" class="btn cyan" disabled>Create Match</button>
+      <button id="loginBtn" class="btn login-btn">Login</button>
+      <span id="usernameDisplay" class="username-display"></span>
+    </header>
+
+    <section id="matchList" class="match-list"></section>
+
+    <!-- Match Room (modal window) -->
+    <section id="matchRoom" class="match-room hidden">
+      <div class="match-room-content">
+        <div class="room-header">
+          <h2 class="room-title">Match Room</h2>
+          <button id="backToList" class="btn small">Close Window</button>
+        </div>
+
+        <div class="room-info card">
+          <p><b>Room ID:</b> <span id="roomIdDisplay"></span></p>
+          <p><b>Creator:</b> <span id="roomCreatorDisplay"></span></p>
+          <p><b>Opponent:</b> <span id="roomOpponentDisplay"></span></p>
+          <p><b>Your Side:</b> <span id="yourSideDisplay"></span></p>
+        </div>
+
+        <div class="coin-area card">
+          <div id="coin">
+            <div class="side heads">H</div>
+            <div class="side tails">T</div>
+          </div>
+          <div class="actions">
+            <button id="flipBtn" class="btn cyan glow" disabled>FLIP COIN</button>
+          </div>
+        </div>
+
+        <div id="resultsCard" class="card">
+          <h3 style="margin-top:0">Results</h3>
+          <p id="flipResult" style="font-weight:bold"></p>
+          <p id="winnerDisplay" style="font-size:1.2rem; font-weight:900"></p>
+          <p id="seedData" class="debug-text"></p>
+          <p id="hashData" class="debug-text"></p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Login Modal -->
+  <div id="loginModal" class="modal hidden">
+    <div class="modal-content">
+      <h2>Login</h2>
+      <input id="usernameInput" placeholder="Enter username..." />
+      <div class="modal-actions">
+        <button id="submitLogin" class="btn cyan">Login</button>
+        <button id="closeLogin" class="btn small">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Match Modal -->
+  <div id="createMatchModal" class="modal hidden">
+    <div class="modal-content">
+      <h2 class="modal-title">Create Coinflip</h2>
+
+      <div class="modal-section">
+        <label for="betInput">Bet Amount</label>
+        <input id="betInput" type="number" min="1" step="1" />
+        <div style="font-size:10px; color:var(--muted); text-align:center;">
+          Max: <span id="maxPointsHelper"></span> pts
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <label>Select Your Side</label>
+        <div class="choice-group compact">
+          <div class="choice-box active" data-value="heads">HEADS</div>
+          <div class="choice-box" data-value="tails">TAILS</div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="confirmCreateMatch" class="btn cyan">Create</button>
+        <button id="cancelCreateMatch" class="btn small">Cancel</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Fairness Modal -->
+  <div id="fairnessModal" class="modal hidden">
+    <div class="modal-content">
+      <h2>Fairness</h2>
+      <p style="font-size:12px; color:var(--muted); text-align:left;">
+        Our Provably Fair system works by generating a completely random seed on our server which is then combined with a block ID from the EOS blockchain that is not known before the game starts and used to determine the winning ticket in a game. This design doesn't allow anyone to predict the outcome of a game.
+      </p>
+
+      <div class="modal-section">
+        <div class="choice-group compact">
+          <button class="choice-box active">Coinflip</button>
+          <button class="choice-box">Upgrader</button>
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <label for="eosBlockInput">EOS Block Number</label>
+        <input id="eosBlockInput" placeholder="Enter EOS block number..." />
+        <small style="font-size:10px; color:var(--muted); display:block; margin-top:4px;">
+          You can view the EOS blockchain by visiting your favorite EOS blockchain viewer, such as 
+          <a href="https://eosflare.io" target="_blank">https://eosflare.io</a> or 
+          <a href="https://eosauthority.com" target="_blank">https://eosauthority.com</a>.
+        </small>
+      </div>
+
+      <div class="modal-section">
+        <label for="serverSeedInput">Server Seed</label>
+        <input id="serverSeedInput" placeholder="Server seed..." />
+      </div>
+
+      <div class="modal-section" style="display:flex; gap:10px;">
+        <div style="flex:1;">
+          <label for="starterValueInput">Starter Total Value</label>
+          <input id="starterValueInput" placeholder="0" />
+        </div>
+        <div style="flex:1;">
+          <label for="joinerValueInput">Joiner Total Value</label>
+          <input id="joinerValueInput" placeholder="0" />
+        </div>
+      </div>
+
+      <div class="modal-actions" style="margin-top:15px;">
+        <button id="validateFairnessBtn" class="btn cyan">Validate Fairness</button>
+        <button id="closeFairnessModal" class="btn small">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Account Menu (Stats + Logout) -->
+  <div id="accountMenu" class="modal hidden">
+    <div class="modal-content">
+      <h2>Your Account</h2>
+      <div class="card" style="text-align:left;">
+        <p><b>Total Wagered:</b> <span id="accWagered">0 PTS</span></p>
+        <p><b>Total Won:</b> <span id="accWon">0 PTS</span></p>
+        <p><b>Total Lost:</b> <span id="accLost">0 PTS</span></p>
+      </div>
+      <div class="modal-actions">
+        <button id="logoutBtn" class="btn pink">Log Out</button>
+        <button id="closeAccountMenu" class="btn small">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js" defer></script>
+</body>
+</html>
